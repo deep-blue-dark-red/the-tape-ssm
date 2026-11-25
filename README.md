@@ -171,7 +171,7 @@ M=16 default (ρ 0.64–0.83) is stationary in practice.
 ### LTSF
 
 ```bash
-bash scripts/download_data.sh          # ETT + Exchange + Weather + Electricity + Traffic
+python3 scripts/download_data.py ltsf  # ETT + Exchange + Weather + Electricity + Traffic, verified
 
 python run.py ltsf --dataset ETTh1 --horizon 96
 python run.py ltsf --dataset ETTh1 --all-horizons --n-seeds 3   # 96, 192, 336, 720
@@ -282,6 +282,21 @@ priors) is git-ignored and has to be fetched. This section lists, for every data
 runners read, where it comes from, how to get it, where it lands, and the SHA-256 of the
 exact bytes the published rows were trained on.
 
+### Downloading
+
+```bash
+python3 scripts/download_data.py                 # every dataset in the `all` group (~2.8 GB)
+python3 scripts/download_data.py ltsf cmapss      # groups: ltsf cmapss stformer irregular tpp opensky
+python3 scripts/download_data.py traffic pyrregular   # or single datasets (--list shows them all)
+python3 scripts/download_data.py --verify-only    # hash what is on disk against the manifests
+```
+
+`scripts/download_data.py` needs only the standard library, plus `git` for t-PatchGNN and Time-IMM.
+It fetches each dataset from the sources listed below and checks every file against
+`data/checksums/`. It skips a dataset whose files already verify, and exits non-zero if any file
+differs. The per-benchmark shell scripts (`download_cmapss.sh`, `download_irregular.sh`, …)
+still work but do not cover every dataset.
+
 ### Verifying the files
 
 The manifests are in `data/checksums/<collection>.sha256`, in the standard `sha256sum`
@@ -345,11 +360,12 @@ Licences are those of the upstream sources. Check each source before redistribut
 These are the standard long-term forecasting panels, in the versions distributed with
 Autoformer (Wu et al., NeurIPS 2021) as `all_six_datasets.zip`.
 
-- **Autoformer bundle:** [Google Drive folder](https://drive.google.com/drive/folders/1ZOYpTUa82_jCcxIdTmyr0LXQfvaM9vIy)
-  or [Tsinghua Cloud](https://cloud.tsinghua.edu.cn/d/e1ccfff39ad541908bae/), linked from
-  [thuml/Autoformer](https://github.com/thuml/Autoformer) and
-  [thuml/Time-Series-Library](https://github.com/thuml/Time-Series-Library). Unzip the
-  CSVs into `data/ltsf_raw/`.
+- **Autoformer bundle:** the same CSVs are on the Hugging Face hub at
+  [thuml/Time-Series-Library](https://huggingface.co/datasets/thuml/Time-Series-Library)
+  (`<name>/<name>.csv`; its LFS SHA-256s for `electricity.csv` and `traffic.csv` equal the hashes
+  below). The zip is also in the [Google Drive folder](https://drive.google.com/drive/folders/1ZOYpTUa82_jCcxIdTmyr0LXQfvaM9vIy)
+  linked from [thuml/Autoformer](https://github.com/thuml/Autoformer). The Tsinghua Cloud
+  share is gone as of 2026-11-25. `download_data.py` uses the Hugging Face copy.
 - **ETT:** [zhouhaoyi/ETDataset](https://github.com/zhouhaoyi/ETDataset) (Zhou et al.,
   Informer, AAAI 2021), raw files at
   `https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/<name>.csv`.
@@ -377,15 +393,17 @@ Autoformer (Wu et al., NeurIPS 2021) as `all_six_datasets.zip`.
 
 The two Traffic files differ only in their header and date column. Both carry exactly the
 values of LSTNet's `traffic/traffic.txt.gz` (17,544 × 862, max |Δ| = 0; checked
-2026-11-25), so rows trained on either are comparable. The loader drops the date column.
+2026-11-25), so rows trained on either are comparable. The Mac copy has header `sensor_0…861`,
+hourly dates from 2015-01-01 00:00:00 and shortest round-trip float digits, except that 0.0001
+is spelled `1e-04` (the only such token in the file; the producing tool is not recorded). `download_data.py traffic` rebuilds it byte for byte from the LSTNet file. The loader drops the date column.
 The bundle's weather and exchange CSVs have CRLF line endings. Stripping the `\r` gives
 the committed files byte for byte, and the parsed values are identical.
 `data/national_illness.csv` (ILI, from the same bundle) is committed but no runner reads it.
 
-Known script issues: the Exchange URL in `scripts/download_data.sh`
+Known issues with the old shell scripts: the Exchange URL in `scripts/download_data.sh`
 (`…/exchange_rate/exchange_rate.txt`) now returns 404 upstream (only `exchange_rate.txt.gz`
 exists), and the Autoformer GitHub raw paths tried by `download_electricity.sh` /
-`download_weather.sh` no longer exist. The Autoformer bundle above is the reliable source.
+`download_weather.sh` no longer exist. Use `scripts/download_data.py ltsf`.
 
 ### C-MAPSS (`data/cmapss/`) — collection `cmapss`
 
@@ -397,6 +415,8 @@ The NASA Commercial Modular Aero-Propulsion System Simulation turbofan run-to-fa
   entry 6 "Turbofan Engine Degradation Simulation".
 - Direct zip (PHM Society mirror):
   `https://phm-datasets.s3.amazonaws.com/NASA/6.+Turbofan+Engine+Degradation+Simulation+Data+Set.zip`.
+  It wraps the NASA `CMAPSSData.zip`, whose files are byte-identical to the hashes below.
+  `scripts/download_cmapss.sh` and `download_data.py cmapss` both use it and unpack the inner zip.
 - Kaggle mirror (the copy used here, `nasa-cmaps.zip`):
   [behrad3d/nasa-cmaps](https://www.kaggle.com/datasets/behrad3d/nasa-cmaps).
 
@@ -502,7 +522,7 @@ hosted on the Hugging Face hub as `easytpp/<name>` with `train.json`, `dev.json`
 `test.json`. Each event has `time_since_start`, `time_since_last_event` and `type_event`.
 
 ```bash
-# fetched by download_irregular.sh for taxi, stackoverflow, retweet; taobao by hand:
+# download_data.py easytpp fetches all four; download_irregular.sh skips taobao. By hand:
 for f in train dev test; do
   curl -L --fail -o data/irregular/easytpp/taobao/$f.json \
     https://huggingface.co/datasets/easytpp/taobao/resolve/main/$f.json
